@@ -1,9 +1,6 @@
-# Ironwatch Edge HIDS Console (Qt/QML)
+# HIDS Console (Qt/QML)
 
-Desktop operator console for the Ironwatch project. The UI comes from the
-Claude Design handoff bundle (`../project/Ironwatch HIDS Console.dc.html`);
-the data layer is written against the actual on-device service
-(`hids::TelemetryServer` / `hids::DetectionEvent`).
+
 
 ## Transport: MQTT via Mosquitto
 
@@ -12,9 +9,9 @@ to the broker — and subscribes:
 
 | Filter | QoS | Purpose |
 |---|---|---|
-| `ironwatch/+/status` | 1 | fleet discovery (retained) + online/offline |
-| `ironwatch/+/alerts` | 1 | triage queue |
-| `ironwatch/+/events` | 0 | live stream |
+| `hids/+/status` | 1 | fleet discovery (retained) + online/offline |
+| `hids/+/alerts` | 1 | triage queue |
+| `hids/+/events` | 0 | live stream |
 
 Boards are **not configured in the console**. They announce themselves on
 the retained status topic and appear on their own; the Integrations screen
@@ -147,71 +144,3 @@ app/
   qml/
     Main.qml, components/, screens/
 ```
-
-The board-side publisher and the broker deployment live in `board/` and
-`deploy/mosquitto/`.
-
-`App` (AppController) and `Theme` (ThemeProvider) are registered under QML
-URI `IronwatchApp`, separate from the `Ironwatch` module that
-`qt_add_qml_module` generates for the QML files.
-
-Broker settings and severity thresholds persist via `QSettings`. Note the
-broker password is stored in the clear there — for a real deployment, move
-it to the platform keychain or issue the console a client certificate.
-
-## Bugs found and fixed while verifying
-
-Earlier round (initial UI build): composite `pragma Singleton` QML type
-resolving to an empty object (moved `Theme` to C++); `Q_PROPERTY` pointers
-needing complete types for moc; fractional `font.pixelSize` (QML requires
-`int`); `ShapePath` having no `visible`; `Row`/`Column` anchor violations
-causing a binding loop; `Grid` sizing columns across all rows.
-
-Wiring to the real service:
-
-- **`saveSettings()` fired from inside `loadSettings()`**, and
-  `beginWriteArray()` truncates — so loading the config wiped the saved
-  endpoint list before it was read back, and the fleet silently came up
-  empty every launch. Fixed with a load guard.
-- **QSettings' INI backend parses a comma-containing value as a
-  `QStringList`**, so the round-tripped `normalClasses` string came back
-  empty from `toString()` — which then persisted an empty list. Now stored
-  and read as a real `QStringList`.
-- **`ClassStatsModel` share column summed past 100%**: inserting a new
-  class bumps the denominator for every existing row, but only the new row
-  was re-emitted. Now re-emits the prior rows on insert.
-- **The selected board's live data froze** after selection: the
-  `selectedNode` property only re-emitted when the *selection* changed, not
-  when that node's counters did, so the confidence chart stayed at whatever
-  it held when first selected.
-- **The `Theme` singleton isn't resolvable during a root object's own
-  property initialization** (it is fine inside lazily-created delegates).
-  Hit this on the Detections inspector; fixed by deferring the inspector
-  behind a `Loader`, which is the right structure anyway.
-- `FormField` only reported on `editingFinished`, so reading `.value` for
-  the "add board" row returned stale text; added `currentText`.
-- Assorted leftovers from the mock era: `qint64` used as a QML type name,
-  a hardcoded "hids-lstm v2.4.1" in the sidebar, `StatCard` meta text
-  clipping now that it carries protocol caveats.
-
-## Design fidelity
-
-Colours, the blueprint corner-mark treatment, typography and the sidebar
-glyphs are unchanged from the verified design port, including the
-deliberate quirk that severity chip colours stay at their light-theme
-values in both themes. Both themes still render correctly.
-
-
-## Bugs found while moving to MQTT
-
-- **`Theme` is not resolvable during a root object's own property
-  initialization** — hit again on a new screen. Colour lookups belong on
-  the item that consumes them, or behind a `Loader`.
-- QML delegates referencing model roles (`statusReason`, `lastClass`)
-  without declaring them as `required property` bind to `undefined`
-  silently until the role is actually read.
-- The ACL's board-isolation guarantee was **tested, not assumed**: a board
-  publishing to another board's topic gets a normal `PUBACK` and is then
-  silently discarded, so only checking the publisher's return code would
-  have shown a false pass. Verified by confirming non-delivery at a
-  subscriber instead.
