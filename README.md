@@ -1,8 +1,6 @@
 # HIDS Console (Qt/QML)
 
-
-
-## Transport: MQTT via Mosquitto
+## Transport: MQTT via Qt MQtt
 
 The console no longer dials boards directly. It holds **one** connection —
 to the broker — and subscribes:
@@ -15,7 +13,7 @@ to the broker — and subscribes:
 
 Boards are **not configured in the console**. They announce themselves on
 the retained status topic and appear on their own; the Integrations screen
-configures only the broker. See `deploy/mosquitto/TOPICS.md`.
+configures only the broker.
 
 Board identity comes from the **topic**, not the payload's `host` field:
 the broker ACL guarantees a board can only publish under its own hostname,
@@ -34,10 +32,6 @@ implements itself:
   disconnect, so the filter list is remembered and re-issued on every
   successful connect.
 
-Credential failures (bad password, not authorised, ID rejected) stop the
-retry loop instead of hammering the broker forever — they will never
-resolve on their own, and the error stays visible on the Integrations
-screen.
 
 QtMqtt is an **add-on module**, not part of a default Qt install, and is
 licensed **GPLv3 or commercial** — unlike LGPL Qt Core. Fine for an
@@ -63,35 +57,6 @@ TCP path carried — only the transport changed.
 > place they appear. Sending me `detection_event.hpp` would let this be
 > tightened to exact keys.
 
-## Verified end-to-end
-
-Run against a live Mosquitto 2.0.18 with two simulated boards publishing
-through it (see `board/README.md` for the harness, which links the real
-board-side publisher):
-
-- both boards discovered automatically from retained status, no console
-  configuration;
-- **broker killed mid-run and restarted**: the console retried at 2 s, 4 s
-  and 8 s, reconnected, re-subscribed, and both boards returned to online
-  from their retained status — the reconnect path QtMqtt does not provide;
-- per-board window periods correctly inferred (1.0 s and 2.0 s, matching
-  how the harnesses were launched);
-- interleaved event stream, QoS-split routing, triage queue populated;
-- a `SIGKILL`ed board surfaced as `offline — lost (last will)` in a
-  **freshly launched** console that had never seen it alive, purely from
-  the retained Will;
-- all five screens, zero QML warnings.
-
-Not exercised: real hardware, a real Wazuh deployment, TLS/mutual-TLS
-against a cloud broker (the config is written but only the plaintext LAN
-path was run), or a Windows build.
-
-## Build
-
-```
-cmake -S app -B build -DCMAKE_PREFIX_PATH=<path-to-Qt6>
-cmake --build build
-```
 
 Requires Qt 6.4+ **including the Qt MQTT module**. See
 `MQTT_INTEGRATION.md` for how to obtain it, the per-platform build
