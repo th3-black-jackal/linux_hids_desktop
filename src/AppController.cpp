@@ -18,6 +18,7 @@ AppController::AppController(QObject *parent)
     , m_log(new LogModel(this))
     , m_classStats(new ClassStatsModel(this))
     , m_telemetry(new TelemetryClient(m_detections, m_stream, m_log, m_classStats, this))
+    , m_chat(new ChatClient(this))
 {
     // Keep the inspector pointed at the newest detection until the operator
     // picks one; after that, leave their selection alone.
@@ -46,6 +47,7 @@ AppController::AppController(QObject *parent)
                        QStringLiteral("console started") });
 
     m_telemetry->loadSettings();
+    m_chat->loadSettings();
 
     // Boards are discovered from the broker's retained status topic, so
     // there is nothing to configure per board — only the broker itself.
@@ -96,6 +98,7 @@ void AppController::goDetections() { setScreen(QStringLiteral("detections")); }
 void AppController::goNodes() { setScreen(QStringLiteral("nodes")); }
 void AppController::goModel() { setScreen(QStringLiteral("model")); }
 void AppController::goIntegrations() { setScreen(QStringLiteral("integrations")); }
+void AppController::goChat() { setScreen(QStringLiteral("chat")); }
 
 void AppController::toggleTheme()
 {
@@ -166,4 +169,28 @@ void AppController::copySelectedAsJson()
 
     m_log->pushEntry({ QTime::currentTime().toString(QStringLiteral("HH:mm:ss")),
                        QStringLiteral("copied %1 to clipboard").arg(d->uid()) });
+}
+
+void AppController::askAboutSelectedDetection()
+{
+    Detection *d = m_detections->detectionAt(m_selectedDetectionIndex);
+    if (!d) {
+        goChat();
+        return;
+    }
+
+    // Every value below is on the wire. The class name is the *model's* own
+    // label, so the question says so — the backend must not be led into
+    // treating it as an ATT&CK identifier it already knows.
+    const QString q =
+        QStringLiteral("A host-based IDS on board \"%1\" classified a system-call window as "
+                       "\"%2\" (the model's own class label, index %3) with %4 confidence at %5. "
+                       "Which MITRE ATT&CK techniques would match that behaviour on a Linux "
+                       "edge device, and what mitigations apply?")
+            .arg(d->node(), d->className())
+            .arg(d->classIdx())
+            .arg(d->confidenceText(), d->timestampRaw());
+
+    m_chat->setDraft(q);
+    goChat();
 }

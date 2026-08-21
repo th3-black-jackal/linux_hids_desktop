@@ -12,6 +12,7 @@
 #include "core/EventStreamModel.h"
 #include "core/LogModel.h"
 #include "core/NodesModel.h"
+#include "services/ChatClient.h"
 #include "services/TelemetryClient.h"
 
 class Detection;
@@ -39,6 +40,7 @@ class AppController : public QObject {
     Q_PROPERTY(LogModel *serviceLog READ serviceLog CONSTANT)
     Q_PROPERTY(ClassStatsModel *classStats READ classStats CONSTANT)
     Q_PROPERTY(TelemetryClient *telemetry READ telemetry CONSTANT)
+    Q_PROPERTY(ChatClient *chat READ chat CONSTANT)
 
 public:
     explicit AppController(QObject *parent = nullptr);
@@ -59,12 +61,14 @@ public:
     LogModel *serviceLog() const { return m_log; }
     ClassStatsModel *classStats() const { return m_classStats; }
     TelemetryClient *telemetry() const { return m_telemetry; }
+    ChatClient *chat() const { return m_chat; }
 
     Q_INVOKABLE void goOverview();
     Q_INVOKABLE void goDetections();
     Q_INVOKABLE void goNodes();
     Q_INVOKABLE void goModel();
     Q_INVOKABLE void goIntegrations();
+    Q_INVOKABLE void goChat();
 
     Q_INVOKABLE void toggleTheme();
     Q_INVOKABLE void selectNode(int index);
@@ -74,6 +78,11 @@ public:
     Q_INVOKABLE void markBenignSelected();
     Q_INVOKABLE void acknowledgeAll();
     Q_INVOKABLE void copySelectedAsJson();
+
+    // Opens the assistant with a question drafted from the selected
+    // detection. The draft is composed only of fields the event actually
+    // carries; the operator edits and sends it.
+    Q_INVOKABLE void askAboutSelectedDetection();
 
 signals:
     void screenChanged();
@@ -97,6 +106,7 @@ private:
     LogModel *m_log;
     ClassStatsModel *m_classStats;
     TelemetryClient *m_telemetry;
+    ChatClient *m_chat;
 
     QTimer *m_clockTimer;
 };

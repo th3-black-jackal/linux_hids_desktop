@@ -3,13 +3,16 @@ import QtQuick.Shapes
 import Ironwatch
 import IronwatchApp
 
-// The five sidebar/workspace glyphs, ported from the prototype's inline
-// SVGs (24x24 viewBox, currentColor stroke) via QtQuick.Shapes' PathSvg.
+// The sidebar/workspace glyphs, ported from the prototype's inline SVGs
+// (24x24 viewBox, currentColor stroke) via QtQuick.Shapes' PathSvg.
 // ShapePath has no `visible` property, so each icon gets its own Shape
 // (which does) rather than toggling individual ShapePath children.
+//
+// "assistant" has no prototype original — it was drawn to match: same
+// 1.5px hairline, same square-ish geometry as the "nodes" die.
 Item {
     id: root
-    property string kind: "overview" // overview | detections | nodes | model | integrations
+    property string kind: "overview" // overview | detections | nodes | model | integrations | assistant
     property color color: Theme.text
     implicitWidth: 16
     implicitHeight: 16
@@ -95,6 +98,28 @@ Item {
             strokeColor: root.color; strokeWidth: 1.5; fillColor: "transparent"
             capStyle: ShapePath.RoundCap
             PathSvg { path: "M12,7 v4 M12,11 6.5,15.5 M12,11 17.5,15.5" }
+        }
+    }
+
+    IconShape {
+        visible: root.kind === "assistant"
+        // Speech frame with a tail, plus three dots for the streaming answer.
+        ShapePath {
+            strokeColor: root.color; strokeWidth: 1.5; fillColor: "transparent"
+            joinStyle: ShapePath.MiterJoin
+            PathSvg { path: "M3,4 h18 v12 h-11 l-4,4 v-4 h-3 Z" }
+        }
+        ShapePath {
+            strokeColor: root.color; strokeWidth: 1.5; fillColor: root.color
+            PathSvg { path: "M7.4,10 a0.6,0.6 0 1 0 1.2,0 a0.6,0.6 0 1 0 -1.2,0 Z" }
+        }
+        ShapePath {
+            strokeColor: root.color; strokeWidth: 1.5; fillColor: root.color
+            PathSvg { path: "M11.4,10 a0.6,0.6 0 1 0 1.2,0 a0.6,0.6 0 1 0 -1.2,0 Z" }
+        }
+        ShapePath {
+            strokeColor: root.color; strokeWidth: 1.5; fillColor: root.color
+            PathSvg { path: "M15.4,10 a0.6,0.6 0 1 0 1.2,0 a0.6,0.6 0 1 0 -1.2,0 Z" }
         }
     }
 

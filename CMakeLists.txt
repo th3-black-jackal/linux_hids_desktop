@@ -42,6 +42,10 @@ qt_add_executable(IronwatchConsole
     src/core/LogModel.cpp
     src/core/ClassStatsModel.h
     src/core/ClassStatsModel.cpp
+    src/core/ChatModel.h
+    src/core/ChatModel.cpp
+    src/services/ChatClient.h
+    src/services/ChatClient.cpp
     src/services/MqttClient.h
     src/services/MqttClient.cpp
     src/services/TelemetryClient.h
@@ -54,6 +58,7 @@ qt_add_qml_module(IronwatchConsole
     QML_FILES
         qml/Main.qml
         qml/util/Series.js
+        qml/util/Citations.js
         qml/components/BlueprintFrame.qml
         qml/components/AppButton.qml
         qml/components/TagBadge.qml
@@ -72,6 +77,7 @@ qt_add_qml_module(IronwatchConsole
         qml/screens/NodesScreen.qml
         qml/screens/ModelScreen.qml
         qml/screens/IntegrationsScreen.qml
+        qml/screens/ChatScreen.qml
     RESOURCES
         assets/fonts/README.md
 )
@@ -92,6 +98,20 @@ set_target_properties(IronwatchConsole PROPERTIES
     WIN32_EXECUTABLE TRUE
     MACOSX_BUNDLE FALSE
 )
+
+# Console-free probe for the ATT&CK assistant backend. Links the real
+# ChatClient, so it answers "is it the backend or the console?" without
+# starting a GUI. See app/test/chat_probe.cpp.
+qt_add_executable(iw-chat-probe
+    test/chat_probe.cpp
+    src/core/ChatModel.h
+    src/core/ChatModel.cpp
+    src/services/ChatClient.h
+    src/services/ChatClient.cpp
+)
+target_link_libraries(iw-chat-probe PRIVATE Qt6::Core Qt6::Network)
+target_include_directories(iw-chat-probe PRIVATE src)
+set_target_properties(iw-chat-probe PROPERTIES WIN32_EXECUTABLE FALSE)
 
 # Qt deployment on Windows: run windeployqt on the built .exe to pull in the
 # Qt runtime, the QML plugins and Qt6Mqtt.dll.

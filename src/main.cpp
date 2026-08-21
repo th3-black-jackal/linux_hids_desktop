@@ -12,10 +12,14 @@ int main(int argc, char *argv[])
     app.setOrganizationName(QStringLiteral("Ironwatch"));
     app.setApplicationName(QStringLiteral("Ironwatch Edge HIDS Console"));
 
-    QQmlApplicationEngine engine;
-
+    // Declared before the engine so they are destroyed *after* it. Locals go
+    // in reverse order, and the QML object tree re-evaluates bindings as it
+    // tears down — with the engine outliving these, every binding on App or
+    // Theme resolves against a deleted object on the way out.
     AppController controller;
     ThemeProvider themeProvider(&controller);
+
+    QQmlApplicationEngine engine;
 
     // Registered as singletons (not rootContext properties) so they're
     // usable from anywhere, including other singletons. A dedicated URI

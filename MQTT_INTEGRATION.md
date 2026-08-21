@@ -158,15 +158,36 @@ Nodes screen connection log names the specific field.
 
 ## 5. Testing without hardware
 
+**Python driver** (`tools/iw_test_publisher.py`) — no build, easy to edit:
+
+```bash
+pip install paho-mqtt
+
+# continuous telemetry
+python3 tools/iw_test_publisher.py stream --host <broker> \
+        --board rpi4-01:pw --board bbb-02:pw2
+
+# 13 edge cases, each printing what the console should do
+python3 tools/iw_test_publisher.py scenario --board rpi4-01:pw
+
+# is the fault the console, or the broker/ACL?
+python3 tools/iw_test_publisher.py verify --console ironwatch-console:pw
+```
+
+Start with `verify` when something is wrong — it splits "broker/ACL
+problem" from "console problem" in one command. See `tools/README.md`.
+
+**C++ harness** (`iw-fakeboard-mqtt`) — links the *real* board-side
+publisher, so it exercises the code that will run on the Pi:
+
 ```bash
 cmake -S board -B build-board && cmake --build build-board
 ./build-board/iw-fakeboard-mqtt --host <broker> --port 1883 \
     --user rpi4-01 --pass <pw> --board rpi4-01 --window-sec 2 --alert-every 5
 ```
 
-This links the real board-side publisher, so it exercises the same code
-that will run on the Pi. `--user` must equal `--board`, or the broker ACL
-silently discards everything (see below).
+For both, `--user` must equal the board name, or the broker ACL silently
+discards everything (see below).
 
 ## 6. Failure modes worth knowing
 

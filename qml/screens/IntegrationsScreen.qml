@@ -227,6 +227,155 @@ Item {
                 }
             }
 
+            // ── ATT&CK assistant backend ─────────────────────────────────
+            BlueprintFrame {
+                width: parent.width - 44
+                height: chatCol.implicitHeight + 34
+
+                Column {
+                    id: chatCol
+                    anchors.fill: parent
+                    anchors.margins: 17
+                    spacing: 10
+
+                    Row {
+                        width: parent.width
+                        spacing: 10
+                        Text { id: cTitle; text: "ATT&CK assistant"; color: Theme.text; font.family: Theme.fontHeading; font.pixelSize: 15; font.weight: Font.DemiBold }
+                        Item { width: Math.max(0, parent.width - cTitle.implicitWidth - cTag.implicitWidth - 10); height: 1 }
+                        TagBadge {
+                            id: cTag
+                            readonly property var c: Theme.nodeStateColors(
+                                App.chat.configured ? "connected" : "offline")
+                            text: App.chat.configured ? "configured" : "not configured"
+                            bg: c.bg; fg: c.fg; borderColor: c.border
+                            anchors.verticalCenter: cTitle.verticalCenter
+                        }
+                    }
+
+                    Text {
+                        width: parent.width
+                        text: "A separate Django + Ollama service that answers questions about "
+                            + "alerts, grounded in retrieved MITRE ATT&CK entries. It is not on "
+                            + "the MQTT path — nothing from the boards reaches it unless an "
+                            + "operator types it into the Assistant screen."
+                        color: Theme.textMuted
+                        font.pixelSize: 12
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Row {
+                        width: parent.width
+                        spacing: 14
+
+                        FormField {
+                            width: parent.width * 0.42 - 10
+                            label: "Base URL (e.g. http://10.0.0.5:8000)"
+                            value: App.chat.baseUrl
+                            onEdited: function(t) { App.chat.baseUrl = t }
+                        }
+                        FormField {
+                            width: parent.width * 0.42 - 10
+                            label: "API token (Authorization: Token …)"
+                            isPassword: true
+                            value: App.chat.token
+                            onEdited: function(t) { App.chat.token = t }
+                        }
+                        FormField {
+                            width: parent.width * 0.16 - 8
+                            label: "Chunks (k)"
+                            value: String(App.chat.retrievalK)
+                            onEdited: function(t) {
+                                var v = parseInt(t)
+                                if (v > 0) App.chat.retrievalK = v
+                            }
+                        }
+                    }
+
+                    Item {
+                        width: parent.width
+                        height: streamCol.implicitHeight
+
+                        Rectangle {
+                            id: streamBox
+                            width: 14; height: 14
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.topMargin: 2
+                            color: App.chat.streaming ? Theme.accent : "transparent"
+                            border.width: 1
+                            border.color: streamMouse.containsMouse ? Theme.accent : Theme.divider
+                        }
+
+                        Column {
+                            id: streamCol
+                            anchors.left: streamBox.right
+                            anchors.leftMargin: 9
+                            anchors.right: parent.right
+                            spacing: 3
+
+                            Text {
+                                text: "Stream tokens as they are generated"
+                                color: Theme.text
+                                font.family: Theme.fontBody
+                                font.pixelSize: 13
+                            }
+                            Text {
+                                width: parent.width
+                                text: "POST /api/attack/chat/stream/ — Server-Sent Events. Needs the "
+                                    + "backend behind an ASGI server (uvicorn/daphne); under WSGI the "
+                                    + "whole answer arrives at the end anyway. Turn this off to use "
+                                    + "the blocking /api/attack/chat/ endpoint instead."
+                                color: Theme.textMuted
+                                font.pixelSize: 12
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+
+                        MouseArea {
+                            id: streamMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: App.chat.streaming = !App.chat.streaming
+                        }
+                    }
+
+                    Rectangle { width: parent.width; height: 1; color: Theme.divider }
+
+                    Text {
+                        width: parent.width
+                        text: {
+                            if (!App.chat.configured)
+                                return "No base URL set — the Assistant screen is inert until one is."
+                            if (!App.chat.hasToken)
+                                return "No API token set. The backend requires an authenticated user, "
+                                     + "so requests will come back 401 unless it has been configured "
+                                     + "to allow anonymous access."
+                            if (!App.chat.secure)
+                                return "Plain HTTP to " + App.chat.endpointText + ". The token is a "
+                                     + "bearer credential for the whole backend and crosses the "
+                                     + "network in the clear — acceptable on a trusted LAN only."
+                            return "HTTPS to " + App.chat.endpointText + "."
+                        }
+                        color: App.chat.configured && App.chat.hasToken && App.chat.secure
+                            ? Theme.textMuted : Theme.text
+                        font.pixelSize: 11
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                        width: parent.width
+                        visible: App.chat.lastError.length > 0
+                        text: "Last assistant error: " + App.chat.lastError
+                        color: Theme.text
+                        font.family: "ui-monospace, monospace"
+                        font.pixelSize: 11
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
             // ── Discovered fleet ─────────────────────────────────────────
             BlueprintFrame {
                 width: parent.width - 44

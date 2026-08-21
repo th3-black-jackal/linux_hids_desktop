@@ -423,6 +423,14 @@ Item {
                                 text: "View board"
                                 onClicked: App.goNodes()
                             }
+                            AppButton {
+                                width: parent.width
+                                text: "Ask the ATT&CK assistant"
+                                // Drafts a question from this detection and
+                                // opens the Assistant; it is not sent until
+                                // the operator presses Send.
+                                onClicked: App.askAboutSelectedDetection()
+                            }
                         }
 
                         Text {

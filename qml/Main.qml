@@ -264,6 +264,12 @@ Window {
                         }
                         SidebarNavItem {
                             width: sidebar.width
+                            iconKind: "assistant"; text: "Assistant"
+                            active: App.screen === "chat"
+                            onClicked: App.goChat()
+                        }
+                        SidebarNavItem {
+                            width: sidebar.width
                             iconKind: "model"; text: "Model & Rules"
                             active: App.screen === "model"
                             onClicked: App.goModel()
@@ -369,6 +375,7 @@ Window {
                     OverviewScreen { anchors.fill: parent; visible: App.screen === "overview" }
                     DetectionsScreen { anchors.fill: parent; visible: App.screen === "detections" }
                     NodesScreen { anchors.fill: parent; visible: App.screen === "nodes" }
+                    ChatScreen { anchors.fill: parent; visible: App.screen === "chat" }
                     ModelScreen { anchors.fill: parent; visible: App.screen === "model" }
                     IntegrationsScreen { anchors.fill: parent; visible: App.screen === "integrations" }
                 }

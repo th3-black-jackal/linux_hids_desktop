@@ -100,6 +100,29 @@ Requires Qt 6.4+ **including the Qt MQTT module**. See
 `MQTT_INTEGRATION.md` for how to obtain it, the per-platform build
 (including Windows), broker configuration and troubleshooting.
 
+## Second backend: the ATT&CK assistant
+
+The **Assistant** screen chats with a separate Django + Ollama service that
+answers questions about alerts, grounded in retrieved MITRE ATT&CK entries.
+It is a plain HTTP client — `QNetworkAccessManager` streaming Server-Sent
+Events — and is **independent of MQTT in both directions**: nothing a board
+publishes reaches it unless an operator puts it in a question, and the
+broker being down does not affect it.
+
+Its wire contract is `API_DOCUMENTATION.md`; how the console implements it,
+how to point it at a deployment and how to test it without one are in
+`ASSISTANT_INTEGRATION.md`.
+
+Because the backend is an LLM, two things are treated as load-bearing
+rather than cosmetic:
+
+- **A citation is linked only if the backend actually retrieved it.** The
+  model cites ATT&CK ids that were never in `sources`; those render as
+  plain text with a footnote counting them, because a link to a guessed
+  MITRE URL would present a hallucination as a grounded reference.
+- **An incomplete answer is never shown as a finished one.** A stream that
+  stops without `done`, or a `done` carrying no tokens, is marked failed.
+
 ## What the protocol does *not* carry
 
 The design mocked up a richer console than this service can feed. Rather
@@ -140,13 +163,20 @@ app/
       Detection/DetectionsModel — triage queue over non-normal windows
       EventStreamModel          — unfiltered live feed
       ClassStatsModel           — observed class distribution
+      ChatModel.{h,cpp}         — assistant transcript (turns, sources, per-turn state)
       LogModel                  — console-side connection log
     services/
       MqttClient.{h,cpp}        — QtMqtt wrapper + reconnect/re-subscribe logic
       TelemetryClient.{h,cpp}   — subscriptions, board registry, event fan-out
+      ChatClient.{h,cpp}        — ATT&CK backend: SSE streaming, token auth, errors
+  test/
+    chat_probe.cpp              — iw-chat-probe, a GUI-free driver for ChatClient
   qml/
-    Main.qml, components/, screens/
+    Main.qml, components/, screens/, util/Citations.js
 ```
+
+`cmake --build` produces two binaries: `IronwatchConsole` and
+`iw-chat-probe` (see `ASSISTANT_INTEGRATION.md` §5).
 
 The board-side publisher and the broker deployment live in `board/` and
 `deploy/mosquitto/`.
@@ -155,9 +185,11 @@ The board-side publisher and the broker deployment live in `board/` and
 URI `IronwatchApp`, separate from the `Ironwatch` module that
 `qt_add_qml_module` generates for the QML files.
 
-Broker settings and severity thresholds persist via `QSettings`. Note the
-broker password is stored in the clear there — for a real deployment, move
-it to the platform keychain or issue the console a client certificate.
+Broker settings, severity thresholds and the assistant's base URL/token
+persist via `QSettings`. Note that both the broker password and the API
+token are stored **in the clear** there — for a real deployment, move them
+to the platform keychain, or issue the console a client certificate for the
+broker and drop the password entirely.
 
 ## Bugs found and fixed while verifying
 

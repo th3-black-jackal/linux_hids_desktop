@@ -16,7 +16,7 @@ namespace {
 bool splitTopic(const QString &topic, QString *host, QString *leaf)
 {
     const QStringList parts = topic.split(QLatin1Char('/'));
-    if (parts.size() != 3 || parts.at(0) != QLatin1String("hids"))
+    if (parts.size() != 3 || parts.at(0) != QLatin1String("ironwatch"))
         return false;
     *host = parts.at(1);
     *leaf = parts.at(2);
@@ -133,9 +133,9 @@ void TelemetryClient::reconnect()
     // (from retained messages) before any traffic arrives; alerts at QoS 1
     // because losing one is losing an intrusion; events at QoS 0 because a
     // dropped normal window is replaced a second later.
-    m_mqtt->subscribe(QStringLiteral("hids/+/status"), 0);
-    m_mqtt->subscribe(QStringLiteral("hids/+/alerts"), 0);
-    m_mqtt->subscribe(QStringLiteral("hids/+/events"), 0);
+    m_mqtt->subscribe(QStringLiteral("ironwatch/+/status"), 1);
+    m_mqtt->subscribe(QStringLiteral("ironwatch/+/alerts"), 1);
+    m_mqtt->subscribe(QStringLiteral("ironwatch/+/events"), 0);
 }
 
 void TelemetryClient::onMessage(const QString &topic, const QByteArray &payload)
