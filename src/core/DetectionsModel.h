@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QAbstractListModel>
+#include <QSet>
 #include <QVector>
 
 #include "Detection.h"
@@ -42,7 +43,22 @@ public:
 
     // Prepends (newest first) and takes ownership. Trims the oldest beyond
     // kMaxRetained so a long-running console doesn't grow without bound.
-    void addDetection(Detection *detection);
+    //
+    // `dedupKey` identifies the underlying event across its two possible
+    // sources — the live MQTT feed and the SIEM database backfill, which
+    // overlap while both are running at startup. A repeated key is dropped
+    // (the Detection is deleted) and the call returns false. Pass an empty
+    // key to skip the check.
+    bool addDetection(Detection *detection, const QString &dedupKey = QString());
+
+    // Adds a whole page at once, oldest first, under a single model reset.
+    // The per-row path does one reset each, which is fine at telemetry rates
+    // (a few a second) and quadratic at backfill rates (a few thousand in a
+    // burst). Returns the number actually added after de-duplication.
+    int addBatch(const QVector<Detection *> &oldestFirst, const QVector<QString> &keys);
+
+    // host|timestamp|classIdx — the only fields both sources carry.
+    static QString dedupKeyFor(const QString &host, const QString &timestampRaw, int classIdx);
 
     Q_INVOKABLE Detection *detectionAt(int originalIndex) const;
     Q_INVOKABLE void toggleAcknowledge(int originalIndex);
@@ -72,6 +88,8 @@ private:
     static constexpr int kMaxRetained = 5000;
 
     QVector<Detection *> m_all;
+    QVector<QString> m_keys;   // parallel to m_all; empty where none was given
+    QSet<QString> m_seenKeys;
     QVector<int> m_filtered;
     QString m_severityFilter = QStringLiteral("all");
     QString m_searchText;

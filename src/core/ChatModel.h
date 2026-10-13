@@ -50,6 +50,12 @@ public:
     int appendAssistantPlaceholder();
 
     void appendToken(int row, const QString &text);
+    // Replaces a streaming answer wholesale. The OpenAI surface delivers its
+    // `**Sources:**` footer as ordinary content deltas, and the footer is
+    // lifted out into `sources` rather than shown as raw markdown — so the
+    // visible text can *shrink* as the marker arrives, which an append-only
+    // path cannot express.
+    void setAnswerText(int row, const QString &text);
     void setSources(int row, const QVariantList &sources);
     void finish(int row);
     void fail(int row, const QString &detail);
@@ -58,10 +64,11 @@ public:
     QString textAt(int row) const;
     QString roleAt(int row) const;
 
-    // The last `maxTurns` completed turns, oldest first, as the backend's
-    // history array. Unfinished or failed answers are left out — sending a
-    // truncated answer back as context would poison the next question.
-    QJsonArray history(int maxTurns) const;
+    // The last `maxTurns` completed turns, oldest first, as an OpenAI
+    // `messages` array (§3.1). Unfinished or failed answers are left out —
+    // sending a truncated answer back as context would poison the next
+    // question. The caller appends the new user message itself.
+    QJsonArray openAiMessages(int maxTurns) const;
 
     Q_INVOKABLE void clear();
 

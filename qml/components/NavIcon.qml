@@ -12,7 +12,7 @@ import IronwatchApp
 // 1.5px hairline, same square-ish geometry as the "nodes" die.
 Item {
     id: root
-    property string kind: "overview" // overview | detections | nodes | model | integrations | assistant
+    property string kind: "overview" // overview | detections | events | nodes | model | integrations | assistant
     property color color: Theme.text
     implicitWidth: 16
     implicitHeight: 16
@@ -98,6 +98,16 @@ Item {
             strokeColor: root.color; strokeWidth: 1.5; fillColor: "transparent"
             capStyle: ShapePath.RoundCap
             PathSvg { path: "M12,7 v4 M12,11 6.5,15.5 M12,11 17.5,15.5" }
+        }
+    }
+
+    IconShape {
+        visible: root.kind === "events"
+        // Stacked rows narrowing downward: a table with a filter applied.
+        ShapePath {
+            strokeColor: root.color; strokeWidth: 1.5; fillColor: "transparent"
+            capStyle: ShapePath.RoundCap
+            PathSvg { path: "M3,5 h18 M6,10 h12 M9,15 h6 M10.5,20 h3" }
         }
     }
 

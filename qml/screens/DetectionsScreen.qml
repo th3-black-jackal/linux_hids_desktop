@@ -93,8 +93,13 @@ Item {
 
             // Table
             Item {
+                id: tableArea
                 width: parent.width - 392
                 height: parent.height
+
+                // y of the row the explain popup was opened from, in this
+                // item's coordinates, so the panel appears beside it.
+                property real explainY: 0
 
                 Column {
                     anchors.fill: parent
@@ -187,15 +192,36 @@ Item {
                                     id: rowMouse
                                     anchors.fill: parent
                                     hoverEnabled: true
+                                    acceptedButtons: Qt.LeftButton | Qt.RightButton
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: App.selectDetection(row.originalIndex)
+                                    // Double-click is the conventional "open
+                                    // this row" gesture, and unlike plain
+                                    // selection it cannot fire from the
+                                    // keyboard or from a model reset.
+                                    onDoubleClicked: function(mouse) {
+                                        if (mouse.button === Qt.LeftButton)
+                                            App.openDetectionInWeb(row.originalIndex)
+                                    }
+                                    onClicked: function(mouse) {
+                                        if (mouse.button === Qt.RightButton) {
+                                            // Right-click asks the backend about
+                                            // this row and opens the panel beside
+                                            // it. It also selects, so the panel and
+                                            // the inspector never describe two
+                                            // different rows.
+                                            tableArea.explainY = row.mapToItem(tableArea, 0, 0).y
+                                            App.explainDetection(row.originalIndex)
+                                        } else {
+                                            App.selectDetection(row.originalIndex)
+                                        }
+                                    }
                                 }
                             }
                         }
 
                         EmptyState {
                             anchors.fill: parent
-                            visible: detView.count === 0
+                            visible: detView.count === 0 && !App.explainer.active
                             title: App.detectionsModel.total === 0
                                 ? "No detections yet"
                                 : "No detections match this filter"
@@ -205,6 +231,11 @@ Item {
                                 : ""
                         }
                     }
+                }
+
+                AlertExplainPopup {
+                    anchors.fill: parent
+                    anchorY: tableArea.explainY
                 }
             }
 
@@ -423,14 +454,26 @@ Item {
                                 text: "View board"
                                 onClicked: App.goNodes()
                             }
-                            AppButton {
-                                width: parent.width
-                                text: "Ask the ATT&CK assistant"
-                                // Drafts a question from this detection and
-                                // opens the Assistant; it is not sent until
-                                // the operator presses Send.
-                                onClicked: App.askAboutSelectedDetection()
-                            }
+                        }
+
+                        // Outside the Grid on purpose: a Grid sizes its
+                        // columns across *all* rows, so one full-width cell
+                        // makes column 0 full-width and pushes column 1 —
+                        // "Mark benign" and "View board" — off the panel.
+                        AppButton {
+                            width: parent.width
+                            visible: App.webLink.enabled
+                            text: "Open in web app"
+                            onClicked: App.openDetectionInWeb(App.selectedDetectionIndex)
+                        }
+
+                        AppButton {
+                            width: parent.width
+                            text: "Ask the ATT&CK assistant"
+                            // Drafts a question from this detection and opens
+                            // the Assistant; it is not sent until the
+                            // operator presses Send.
+                            onClicked: App.askAboutSelectedDetection()
                         }
 
                         Text {

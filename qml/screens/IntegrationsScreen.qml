@@ -241,13 +241,13 @@ Item {
                     Row {
                         width: parent.width
                         spacing: 10
-                        Text { id: cTitle; text: "ATT&CK assistant"; color: Theme.text; font.family: Theme.fontHeading; font.pixelSize: 15; font.weight: Font.DemiBold }
+                        Text { id: cTitle; text: "Backend (SIEM database + ATT&CK assistant)"; color: Theme.text; font.family: Theme.fontHeading; font.pixelSize: 15; font.weight: Font.DemiBold }
                         Item { width: Math.max(0, parent.width - cTitle.implicitWidth - cTag.implicitWidth - 10); height: 1 }
                         TagBadge {
                             id: cTag
                             readonly property var c: Theme.nodeStateColors(
-                                App.chat.configured ? "connected" : "offline")
-                            text: App.chat.configured ? "configured" : "not configured"
+                                App.backend.configured ? "connected" : "offline")
+                            text: App.backend.configured ? "configured" : "not configured"
                             bg: c.bg; fg: c.fg; borderColor: c.border
                             anchors.verticalCenter: cTitle.verticalCenter
                         }
@@ -255,10 +255,13 @@ Item {
 
                     Text {
                         width: parent.width
-                        text: "A separate Django + Ollama service that answers questions about "
-                            + "alerts, grounded in retrieved MITRE ATT&CK entries. It is not on "
-                            + "the MQTT path — nothing from the boards reaches it unless an "
-                            + "operator types it into the Assistant screen."
+                        text: "One Django host serving two APIs: /api/siem/ is the stored event "
+                            + "history behind the Events screen and the alerts loaded at startup, "
+                            + "and /v1/ is the OpenAI-compatible LLM assistant. They authenticate "
+                            + "differently — the SIEM API with `Token`, the chat API with `Bearer` "
+                            + "— so the key below is separate, though the backend also accepts the "
+                            + "token for both. Neither is on the MQTT path; the broker stays the "
+                            + "only real-time source."
                         color: Theme.textMuted
                         font.pixelSize: 12
                         wrapMode: Text.WordWrap
@@ -271,23 +274,66 @@ Item {
                         FormField {
                             width: parent.width * 0.42 - 10
                             label: "Base URL (e.g. http://10.0.0.5:8000)"
-                            value: App.chat.baseUrl
-                            onEdited: function(t) { App.chat.baseUrl = t }
+                            value: App.backend.baseUrl
+                            onEdited: function(t) { App.backend.baseUrl = t }
                         }
                         FormField {
-                            width: parent.width * 0.42 - 10
-                            label: "API token (Authorization: Token …)"
+                            width: parent.width * 0.29 - 10
+                            label: "SIEM token (Token …)"
                             isPassword: true
-                            value: App.chat.token
-                            onEdited: function(t) { App.chat.token = t }
+                            value: App.backend.token
+                            onEdited: function(t) { App.backend.token = t }
                         }
                         FormField {
-                            width: parent.width * 0.16 - 8
+                            width: parent.width * 0.29 - 10
+                            label: "Chat API key (Bearer …)"
+                            isPassword: true
+                            value: App.backend.apiKey
+                            onEdited: function(t) { App.backend.apiKey = t }
+                        }
+                    }
+
+                    Row {
+                        width: parent.width
+                        spacing: 14
+
+                        FormField {
+                            width: 160
+                            label: "Model name"
+                            value: App.chat.model
+                            onEdited: function(t) { if (t.length > 0) App.chat.model = t }
+                        }
+                        FormField {
+                            width: 110
                             label: "Chunks (k)"
                             value: String(App.chat.retrievalK)
                             onEdited: function(t) {
                                 var v = parseInt(t)
                                 if (v > 0) App.chat.retrievalK = v
+                            }
+                        }
+
+                        Column {
+                            spacing: 5
+                            Text { text: "CONNECTION"; color: Theme.textMuted; font.pixelSize: 10; font.letterSpacing: 1.0 }
+                            Row {
+                                spacing: 8
+                                height: 34
+                                AppButton {
+                                    text: App.chat.connectionState === "testing" ? "Testing…" : "Test"
+                                    enabled: App.chat.connectionState !== "testing" && App.backend.configured
+                                    // GET /v1/models — separates "wrong URL"
+                                    // from "wrong key" without spending a
+                                    // generation to find out.
+                                    onClicked: App.chat.testConnection()
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+                                Text {
+                                    text: App.chat.connectionDetail
+                                    color: App.chat.connectionState === "error" ? Theme.text : Theme.textMuted
+                                    font.pixelSize: 12
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
                             }
                         }
                     }
@@ -322,10 +368,11 @@ Item {
                             }
                             Text {
                                 width: parent.width
-                                text: "POST /api/attack/chat/stream/ — Server-Sent Events. Needs the "
+                                text: "POST /v1/chat/completions with stream:true — OpenAI chunk "
+                                    + "streaming. Needs the "
                                     + "backend behind an ASGI server (uvicorn/daphne); under WSGI the "
                                     + "whole answer arrives at the end anyway. Turn this off to use "
-                                    + "the blocking /api/attack/chat/ endpoint instead."
+                                    + "the blocking form of the same endpoint instead."
                                 color: Theme.textMuted
                                 font.pixelSize: 12
                                 wrapMode: Text.WordWrap
@@ -346,19 +393,25 @@ Item {
                     Text {
                         width: parent.width
                         text: {
-                            if (!App.chat.configured)
-                                return "No base URL set — the Assistant screen is inert until one is."
-                            if (!App.chat.hasToken)
-                                return "No API token set. The backend requires an authenticated user, "
-                                     + "so requests will come back 401 unless it has been configured "
-                                     + "to allow anonymous access."
-                            if (!App.chat.secure)
-                                return "Plain HTTP to " + App.chat.endpointText + ". The token is a "
+                            if (!App.backend.configured)
+                                return "No base URL set. The Events screen and the Assistant are "
+                                     + "both inert until one is, and the alerts table starts empty "
+                                     + "on every launch instead of loading its history."
+                            if (!App.backend.hasToken)
+                                return "No SIEM token set. The Events screen and the startup alert "
+                                     + "history will come back 401 unless the backend allows "
+                                     + "anonymous access."
+                            if (App.backend.apiKeyIsToken)
+                                return "No separate chat API key set, so the SIEM token is sent as "
+                                     + "the bearer key. The backend accepts that; set an "
+                                     + "sk-attack-… key here if it has been issued one."
+                            if (!App.backend.secure)
+                                return "Plain HTTP to " + App.backend.baseUrl + ". The token is a "
                                      + "bearer credential for the whole backend and crosses the "
                                      + "network in the clear — acceptable on a trusted LAN only."
-                            return "HTTPS to " + App.chat.endpointText + "."
+                            return "HTTPS to " + App.backend.baseUrl + "."
                         }
-                        color: App.chat.configured && App.chat.hasToken && App.chat.secure
+                        color: App.backend.configured && App.backend.hasToken && App.backend.secure
                             ? Theme.textMuted : Theme.text
                         font.pixelSize: 11
                         wrapMode: Text.WordWrap
@@ -372,6 +425,166 @@ Item {
                         font.family: "ui-monospace, monospace"
                         font.pixelSize: 11
                         wrapMode: Text.WordWrap
+                    }
+
+                    Rectangle { width: parent.width; height: 1; color: Theme.divider }
+
+                    Row {
+                        width: parent.width
+                        spacing: 10
+
+                        Text {
+                            id: bfLabel
+                            text: "Startup alert history"
+                            color: Theme.text
+                            font.family: Theme.fontHeading
+                            font.pixelSize: 13
+                            font.weight: Font.DemiBold
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        TagBadge {
+                            readonly property var c: Theme.nodeStateColors({
+                                "done": "connected", "loading": "connecting",
+                                "truncated": "stale", "error": "offline",
+                                "skipped": "offline"
+                            }[App.siem.backfillState] || "offline")
+                            text: App.siem.backfillState
+                            bg: c.bg; fg: c.fg; borderColor: c.border
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        AppButton {
+                            text: "Reload history"
+                            visible: App.siem.backfillState === "error"
+                                     || App.siem.backfillState === "skipped"
+                            onClicked: App.siem.retryBackfill()
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+
+                    Text {
+                        width: parent.width
+                        text: {
+                            switch (App.siem.backfillState) {
+                            case "loading":
+                                return "Loading confirmed alerts from /api/siem/events/?type=alert — "
+                                     + App.siem.backfillLoaded + " so far."
+                            case "done":
+                                return "Loaded " + App.siem.backfillLoaded + " confirmed alert"
+                                     + (App.siem.backfillLoaded === 1 ? "" : "s")
+                                     + " into the Detections queue at launch. MQTT adds new ones on "
+                                     + "top; anything both sources deliver is shown once."
+                            case "truncated":
+                                return "Stopped at " + App.siem.backfillLoaded + " of "
+                                     + App.siem.backfillTotal + " alerts — that is the console's "
+                                     + "retention limit. Use the Events screen to reach older ones."
+                            case "error":
+                                return "The history could not be loaded; see the Nodes connection log. "
+                                     + "The Detections queue holds only what MQTT has delivered since "
+                                     + "launch."
+                            case "skipped":
+                                return "No backend configured, so the Detections queue starts empty "
+                                     + "and fills from MQTT only."
+                            default:
+                                return ""
+                            }
+                        }
+                        color: Theme.textMuted
+                        font.pixelSize: 12
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
+            // ── External web app ─────────────────────────────────────────
+            BlueprintFrame {
+                width: parent.width - 44
+                height: webCol.implicitHeight + 34
+
+                Column {
+                    id: webCol
+                    anchors.fill: parent
+                    anchors.margins: 17
+                    spacing: 10
+
+                    Row {
+                        width: parent.width
+                        spacing: 10
+                        Text { id: wTitle; text: "Open event in web app"; color: Theme.text; font.family: Theme.fontHeading; font.pixelSize: 15; font.weight: Font.DemiBold }
+                        Item { width: Math.max(0, parent.width - wTitle.implicitWidth - wTag.implicitWidth - 10); height: 1 }
+                        TagBadge {
+                            id: wTag
+                            readonly property var c: Theme.nodeStateColors(
+                                App.webLink.enabled ? "connected" : "offline")
+                            text: App.webLink.enabled ? "enabled" : "disabled"
+                            bg: c.bg; fg: c.fg; borderColor: c.border
+                            anchors.verticalCenter: wTitle.verticalCenter
+                        }
+                    }
+
+                    Text {
+                        width: parent.width
+                        text: "Double-click a row on Detections or Events — or use the inspector "
+                            + "button — to open that event in a browser. Plain selection does not "
+                            + "open anything: selection also happens from the keyboard and when "
+                            + "new alerts arrive, and a browser launching on every row change "
+                            + "would make the table unusable."
+                        color: Theme.textMuted
+                        font.pixelSize: 12
+                        wrapMode: Text.WordWrap
+                    }
+
+                    FormField {
+                        width: parent.width
+                        label: "URL template — clear this to disable the feature"
+                        value: App.webLink.urlTemplate
+                        onEdited: function(t) { App.webLink.urlTemplate = t }
+                    }
+
+                    Text {
+                        width: parent.width
+                        text: "Placeholders: {id} {uid} {host} {class} {classIdx} {confidence} "
+                            + "{severity} {time}. Values are percent-encoded, and a query "
+                            + "parameter whose placeholder resolves to nothing is dropped — so "
+                            + "one template serves both a database row and a live MQTT detection, "
+                            + "which has no server-side id."
+                        color: Theme.textMuted
+                        font.pixelSize: 11
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Rectangle { width: parent.width; height: 1; color: Theme.divider }
+
+                    Text {
+                        width: parent.width
+                        text: "The web app's real deep-link format is not documented here, so the "
+                            + "default passes the event in the query string: an unrecognised query "
+                            + "parameter is ignored by a single-page app, where an unrecognised "
+                            + "path is a 404. Change the template above once the format is known."
+                        color: Theme.text
+                        font.pixelSize: 11
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Row {
+                        width: parent.width
+                        spacing: 10
+
+                        AppButton {
+                            text: "Restore default"
+                            onClicked: App.webLink.resetTemplate()
+                        }
+                        Text {
+                            width: parent.width - 140
+                            text: App.webLink.lastError.length > 0
+                                ? App.webLink.lastError
+                                : (App.webLink.lastUrl.length > 0
+                                    ? ("Last opened: " + App.webLink.lastUrl) : "")
+                            color: App.webLink.lastError.length > 0 ? Theme.text : Theme.textMuted
+                            font.family: "ui-monospace, monospace"
+                            font.pixelSize: 11
+                            elide: Text.ElideMiddle
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
                     }
                 }
             }

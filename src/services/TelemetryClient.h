@@ -11,6 +11,7 @@
 #include "../core/LogModel.h"
 #include "../core/NodesModel.h"
 #include "MqttClient.h"
+#include "SiemClient.h"
 
 QT_BEGIN_NAMESPACE
 class QTimer;
@@ -100,6 +101,11 @@ public:
     // Applies the current broker settings and (re)connects.
     Q_INVOKABLE void reconnect();
 
+    // Fills the triage queue from the SIEM database before (and alongside)
+    // anything MQTT delivers. Called once at startup; the live feed is
+    // unaffected and keeps adding new alerts as they arrive.
+    void backfillFrom(SiemClient *siem);
+
     void loadSettings();
     void saveSettings();
 
@@ -114,6 +120,7 @@ private:
     void handleEvent(const QString &host, const QByteArray &payload, bool fromAlertsTopic);
     void onTick();
     void loadFeatureNames();
+    void ingestSiemPage(const QVector<SiemEventsModel::Row> &page);
 
     NodesModel m_nodes;
     DetectionsModel *m_detections;
@@ -132,6 +139,7 @@ private:
     QString m_brokerPassword;
     QString m_caFile;
 
+    SiemClient *m_siem = nullptr;
     QTimer *m_tick = nullptr;
     QDateTime m_lastEventAt;
     qint64 m_framesDropped = 0;

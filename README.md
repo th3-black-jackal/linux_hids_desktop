@@ -100,28 +100,42 @@ Requires Qt 6.4+ **including the Qt MQTT module**. See
 `MQTT_INTEGRATION.md` for how to obtain it, the per-platform build
 (including Windows), broker configuration and troubleshooting.
 
-## Second backend: the ATT&CK assistant
+## The backend: two APIs on one Django host
 
-The **Assistant** screen chats with a separate Django + Ollama service that
-answers questions about alerts, grounded in retrieved MITRE ATT&CK entries.
-It is a plain HTTP client — `QNetworkAccessManager` streaming Server-Sent
-Events — and is **independent of MQTT in both directions**: nothing a board
-publishes reaches it unless an operator puts it in a question, and the
-broker being down does not affect it.
+Besides the broker, the console talks to a Django backend over plain HTTP.
+One base URL, but **two auth schemes** — the SIEM API uses DRF's `Token`, the
+chat API is OpenAI-compatible and uses `Bearer`:
 
-Its wire contract is `API_DOCUMENTATION.md`; how the console implements it,
-how to point it at a deployment and how to test it without one are in
-`ASSISTANT_INTEGRATION.md`.
+| API | Screen | Doc |
+|---|---|---|
+| `/api/siem/` — stored event history, read-only | **Events**, and the alerts loaded at launch | `SIEM_API_DOCUMENTATION.md` → `SIEM_INTEGRATION.md` |
+| `/v1/` — OpenAI-compatible RAG assistant | **Assistant**, and the right-click explain panel | `OPENAI_API_DOCUMENTATION.md` → `ASSISTANT_INTEGRATION.md` |
 
-Because the backend is an LLM, two things are treated as load-bearing
+Separately, double-clicking an event opens it in an external web app — a
+configurable URL template, and the one thing the console sends to a host
+outside the broker and the backend. See `WEBLINK_INTEGRATION.md`.
+
+**MQTT remains the only real-time source.** The database supplies history at
+startup, the Events screen queries it on demand, and neither polls. The two
+sources meet in exactly one place — the Detections triage queue — where
+`host|event_time|class_idx` de-duplicates the overlap. Every other live
+surface (fleet liveness, the Overview stream, class distribution, "last event
+N s ago") is fed by MQTT alone, so it keeps describing the running system
+rather than a replayed week.
+
+Because one of those APIs is an LLM, two things are treated as load-bearing
 rather than cosmetic:
 
 - **A citation is linked only if the backend actually retrieved it.** The
-  model cites ATT&CK ids that were never in `sources`; those render as
-  plain text with a footnote counting them, because a link to a guessed
-  MITRE URL would present a hallucination as a grounded reference.
+  model cites ATT&CK ids that were never retrieved; those render as plain
+  text with a footnote counting them, because a link to a guessed MITRE URL
+  would present a hallucination as a grounded reference. On this surface the
+  grounded set is recovered from the answer's markdown `**Sources:**` footer,
+  which is parsed out of the body rather than shown raw.
 - **An incomplete answer is never shown as a finished one.** A stream that
-  stops without `done`, or a `done` carrying no tokens, is marked failed.
+  stops without a stop chunk and without `[DONE]`, or one that finishes
+  carrying no content, is marked failed — as is an `[error: …]` marker, which
+  this surface delivers as ordinary answer text on a 200 response.
 
 ## What the protocol does *not* carry
 
@@ -164,19 +178,27 @@ app/
       EventStreamModel          — unfiltered live feed
       ClassStatsModel           — observed class distribution
       ChatModel.{h,cpp}         — assistant transcript (turns, sources, per-turn state)
+      SiemEventsModel.{h,cpp}   — rows from the SIEM database (Events screen)
+      EventFilters.{h,cpp}      — filter state → query params
       LogModel                  — console-side connection log
     services/
       MqttClient.{h,cpp}        — QtMqtt wrapper + reconnect/re-subscribe logic
-      TelemetryClient.{h,cpp}   — subscriptions, board registry, event fan-out
-      ChatClient.{h,cpp}        — ATT&CK backend: SSE streaming, token auth, errors
+      TelemetryClient.{h,cpp}   — subscriptions, board registry, event fan-out, backfill
+      BackendSettings.{h,cpp}   — base URL + token, shared by both HTTP clients
+      ChatClient.{h,cpp}        — OpenAI /v1/chat/completions: chunk streaming, bearer auth, Sources footer
+      AlertExplainer.{h,cpp}    — right-click explain popup (its own ChatClient)
+      EventWebLink.{h,cpp}      — "open this event in the web app" URL template
+      SiemClient.{h,cpp}        — SIEM read API: filters, paging, stats, detail, backfill
   test/
-    chat_probe.cpp              — iw-chat-probe, a GUI-free driver for ChatClient
+    chat_probe.cpp              — iw-chat-probe, a GUI-free driver for both HTTP clients
   qml/
     Main.qml, components/, screens/, util/Citations.js
 ```
 
 `cmake --build` produces two binaries: `IronwatchConsole` and
-`iw-chat-probe` (see `ASSISTANT_INTEGRATION.md` §5).
+`iw-chat-probe`, which drives the real `ChatClient` (`--scenarios`) and the
+real `SiemClient` (`--siem`) with no GUI — see `ASSISTANT_INTEGRATION.md` §5
+and `SIEM_INTEGRATION.md` §5.
 
 The board-side publisher and the broker deployment live in `board/` and
 `deploy/mosquitto/`.
@@ -185,9 +207,9 @@ The board-side publisher and the broker deployment live in `board/` and
 URI `IronwatchApp`, separate from the `Ironwatch` module that
 `qt_add_qml_module` generates for the QML files.
 
-Broker settings, severity thresholds and the assistant's base URL/token
-persist via `QSettings`. Note that both the broker password and the API
-token are stored **in the clear** there — for a real deployment, move them
+Broker settings, severity thresholds and the backend's base URL/token persist
+via `QSettings`. Note that both the broker password and the API token are
+stored **in the clear** there — for a real deployment, move them
 to the platform keychain, or issue the console a client certificate for the
 broker and drop the password entirely.
 

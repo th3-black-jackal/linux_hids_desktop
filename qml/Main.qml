@@ -17,6 +17,12 @@ Window {
     color: Theme.bg
     title: "Ironwatch — Edge HIDS Console"
 
+    Loader { id: intelLoader; active: false; source: "windows/ThreatIntelWindow.qml" }
+    function openIntel() {
+        intelLoader.active = true;
+        intelLoader.item.show(); intelLoader.item.raise(); intelLoader.item.requestActivate();
+    }
+
     Rectangle {
         anchors.fill: parent
         color: Theme.bg
@@ -258,6 +264,12 @@ Window {
                         }
                         SidebarNavItem {
                             width: sidebar.width
+                            iconKind: "events"; text: "Events"
+                            active: App.screen === "events"
+                            onClicked: App.goEvents()
+                        }
+                        SidebarNavItem {
+                            width: sidebar.width
                             iconKind: "nodes"; text: "Nodes"
                             active: App.screen === "nodes"
                             onClicked: App.goNodes()
@@ -279,6 +291,13 @@ Window {
                             iconKind: "integrations"; text: "Integrations"
                             active: App.screen === "integrations"
                             onClicked: App.goIntegrations()
+                        }
+
+                        SidebarNavItem {
+                            width: sidebar.width
+                            iconKind: "detections"          // reuse a glyph, or add "intel"
+                            text: "Threat Intel"
+                            onClicked: window.openIntel()   // opens the window, not an App.screen
                         }
 
                         Item { width: 1; height: 18 }
@@ -375,6 +394,7 @@ Window {
                     OverviewScreen { anchors.fill: parent; visible: App.screen === "overview" }
                     DetectionsScreen { anchors.fill: parent; visible: App.screen === "detections" }
                     NodesScreen { anchors.fill: parent; visible: App.screen === "nodes" }
+                    EventsScreen { anchors.fill: parent; visible: App.screen === "events" }
                     ChatScreen { anchors.fill: parent; visible: App.screen === "chat" }
                     ModelScreen { anchors.fill: parent; visible: App.screen === "model" }
                     IntegrationsScreen { anchors.fill: parent; visible: App.screen === "integrations" }

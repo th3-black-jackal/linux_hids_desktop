@@ -5,6 +5,10 @@
 
 #include "AppController.h"
 #include "ThemeProvider.h"
+#include "services/ThreatIntelController.h"
+#ifdef IRONWATCH_HAS_WEBENGINE
+#include <QtWebEngineQuick/QtWebEngineQuick>
+#endif
 
 int main(int argc, char *argv[])
 {
@@ -18,7 +22,9 @@ int main(int argc, char *argv[])
     // Theme resolves against a deleted object on the way out.
     AppController controller;
     ThemeProvider themeProvider(&controller);
-
+#ifdef IRONWATCH_HAS_WEBENGINE
+    QtWebEngineQuick::initialize();   // must precede the QQmlApplicationEngine
+#endif
     QQmlApplicationEngine engine;
 
     // Registered as singletons (not rootContext properties) so they're
@@ -34,6 +40,8 @@ int main(int argc, char *argv[])
     // small C++ class sidesteps that; see ThemeProvider.h.
     qmlRegisterSingletonInstance("IronwatchApp", 1, 0, "App", &controller);
     qmlRegisterSingletonInstance("IronwatchApp", 1, 0, "Theme", &themeProvider);
+    ThreatIntelController intel(&controller /* for shared BackendSettings */);
+    qmlRegisterSingletonInstance("IronwatchApp", 1, 0, "Intel", &intel);
 
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreationFailed,

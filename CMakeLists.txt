@@ -6,6 +6,18 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Network)
+find_package(Qt6 QUIET COMPONENTS WebEngineQuick)
+
+if(Qt6WebEngineQuick_FOUND)
+    target_link_libraries(IronwatchConsole PRIVATE Qt6::WebEngineQuick)
+    target_compile_definitions(IronwatchConsole PRIVATE IRONWATCH_HAS_WEBENGINE)
+    # Only add the WebEngine-importing QML file when the module exists, so
+    # qmlcachegen/qmllint never see `import QtWebEngine` without it.
+    qt_target_qml_sources(IronwatchConsole QML_FILES qml/windows/ReferencePaneWeb.qml)
+    message(STATUS "Threat Intel: Qt WebEngine found — embedded reference pane enabled")
+else()
+    message(STATUS "Threat Intel: Qt WebEngine NOT found — using system-browser fallback")
+endif()
 
 # Qt MQTT (QtMqtt). This is an add-on module, NOT part of the default Qt
 # installation — tick "Qt Mqtt" in the Qt Maintenance Tool / online
@@ -44,12 +56,32 @@ qt_add_executable(IronwatchConsole
     src/core/ClassStatsModel.cpp
     src/core/ChatModel.h
     src/core/ChatModel.cpp
+    src/core/EventFilters.h
+    src/core/EventFilters.cpp
+    src/core/SiemEventsModel.h
+    src/core/SiemEventsModel.cpp
+    src/services/BackendSettings.h
+    src/services/BackendSettings.cpp
     src/services/ChatClient.h
     src/services/ChatClient.cpp
+    src/services/AlertExplainer.h
+    src/services/AlertExplainer.cpp
+    src/services/EventWebLink.h
+    src/services/EventWebLink.cpp
+    src/services/SiemClient.h
+    src/services/SiemClient.cpp
     src/services/MqttClient.h
     src/services/MqttClient.cpp
     src/services/TelemetryClient.h
     src/services/TelemetryClient.cpp
+    src/services/threat_intel/IntelClient.h
+    src/services/threat_intel/IntelClient.cpp
+    src/services/ThreatIntelController.cpp
+    src/services/ThreatIntelController.h
+    src/services/threat_intel/NewsModel.cpp
+    src/services/threat_intel/NewsModel.h
+    src/services/threat_intel/ThreatGraphModel.cpp
+    src/services/threat_intel/ThreatGraphModel.h
 )
 
 qt_add_qml_module(IronwatchConsole
@@ -72,14 +104,18 @@ qt_add_qml_module(IronwatchConsole
         qml/components/TitleBarButton.qml
         qml/components/NavIcon.qml
         qml/components/EmptyState.qml
+        qml/components/AlertExplainPopup.qml
         qml/screens/OverviewScreen.qml
         qml/screens/DetectionsScreen.qml
         qml/screens/NodesScreen.qml
         qml/screens/ModelScreen.qml
         qml/screens/IntegrationsScreen.qml
         qml/screens/ChatScreen.qml
+        qml/screens/EventsScreen.qml
+        qml/windows/ThreatIntelWindow.qml
     RESOURCES
         assets/fonts/README.md
+        SOURCES src/core/ChatModel.cpp src/core/ChatModel.h src/core/ClassStatsModel.cpp src/core/ClassStatsModel.h src/core/Detection.cpp src/core/Detection.h src/core/DetectionEvent.cpp src/core/DetectionEvent.h src/core/DetectionsModel.cpp src/core/DetectionsModel.h src/core/EventFilters.cpp src/core/EventFilters.h src/core/EventStreamModel.cpp src/core/EventStreamModel.h src/core/LogModel.cpp src/core/LogModel.h src/core/Node.cpp src/core/Node.h src/core/NodesModel.cpp src/core/NodesModel.h src/core/SiemEventsModel.cpp src/core/SiemEventsModel.h
 )
 
 target_link_libraries(IronwatchConsole PRIVATE
@@ -99,15 +135,34 @@ set_target_properties(IronwatchConsole PROPERTIES
     MACOSX_BUNDLE FALSE
 )
 
-# Console-free probe for the ATT&CK assistant backend. Links the real
-# ChatClient, so it answers "is it the backend or the console?" without
-# starting a GUI. See app/test/chat_probe.cpp.
+# Console-free probe for the backend. Links the real ChatClient and
+# SiemClient, so it answers "is it the backend or the console?" for both APIs
+# without starting a GUI. See app/test/chat_probe.cpp.
 qt_add_executable(iw-chat-probe
     test/chat_probe.cpp
     src/core/ChatModel.h
     src/core/ChatModel.cpp
+    src/core/DetectionEvent.h
+    src/core/DetectionEvent.cpp
+    src/core/EventFilters.h
+    src/core/EventFilters.cpp
+    src/core/SiemEventsModel.h
+    src/core/SiemEventsModel.cpp
+    src/services/BackendSettings.h
+    src/services/BackendSettings.cpp
     src/services/ChatClient.h
     src/services/ChatClient.cpp
+    src/services/SiemClient.h
+    src/services/SiemClient.cpp
+    src/services/ThreatIntelController.h
+    src/services/ThreatIntelController.cpp
+    src/services/threat_intel/IntelClient.h
+    src/services/threat_intel/IntelClient.cpp
+    src/services/threat_intel/ThreatGraphModel.h
+    src/services/threat_intel/ThreatGraphModel.cpp
+    src/services/threat_intel/NewsModel.h
+    src/services/threat_intel/NewsModel.cpp
+
 )
 target_link_libraries(iw-chat-probe PRIVATE Qt6::Core Qt6::Network)
 target_include_directories(iw-chat-probe PRIVATE src)

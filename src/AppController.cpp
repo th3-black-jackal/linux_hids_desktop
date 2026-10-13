@@ -18,19 +18,35 @@ AppController::AppController(QObject *parent)
     , m_log(new LogModel(this))
     , m_classStats(new ClassStatsModel(this))
     , m_telemetry(new TelemetryClient(m_detections, m_stream, m_log, m_classStats, this))
-    , m_chat(new ChatClient(this))
+    , m_backend(new BackendSettings(this))
+    , m_chat(new ChatClient(m_backend, this))
+    , m_siem(new SiemClient(m_backend, this))
+    , m_explainer(new AlertExplainer(m_backend, this))
+    , m_webLink(new EventWebLink(this))
 {
+    connect(m_webLink, &EventWebLink::logged, this, [this](const QString &msg) {
+        m_log->pushEntry({ QTime::currentTime().toString(QStringLiteral("HH:mm:ss")), msg });
+    });
+
     // Keep the inspector pointed at the newest detection until the operator
-    // picks one; after that, leave their selection alone.
+    // picks one; after that, follow *their* row as new arrivals shift it
+    // down. Which of the two applies is what m_userSelectedDetection tracks:
+    // without it, the first detection ever added became sticky, and a
+    // startup backfill (which arrives oldest-first, in bulk) would leave the
+    // inspector pinned to the oldest alert in the database.
     connect(m_detections, &DetectionsModel::detectionAdded, this, [this]() {
-        if (m_selectedDetectionIndex < 0) {
+        if (!m_userSelectedDetection) {
             m_selectedDetectionIndex = 0;
-            emit selectedDetectionChanged();
-        } else {
-            // Indices shift by one on prepend, so follow the same detection.
-            m_selectedDetectionIndex++;
-            emit selectedDetectionChanged();
+        } else if (m_selectedDetectionIndex >= 0) {
+            // Prepends shift every existing index down by however many rows
+            // arrived; recover the offset from the model rather than
+            // assuming one at a time, since a backfill page lands at once.
+            const int shift = m_detections->total() - m_lastDetectionTotal;
+            if (shift > 0)
+                m_selectedDetectionIndex += shift;
         }
+        m_lastDetectionTotal = m_detections->total();
+        emit selectedDetectionChanged();
     });
 
     // The selected board's counters and confidence history change on every
@@ -46,8 +62,18 @@ AppController::AppController(QObject *parent)
     m_log->pushEntry({ QTime::currentTime().toString(QStringLiteral("HH:mm:ss")),
                        QStringLiteral("console started") });
 
+    m_backend->load();
     m_telemetry->loadSettings();
     m_chat->loadSettings();
+    m_explainer->loadSettings();
+    m_webLink->loadSettings();
+
+    // The database is the console's memory: MQTT only ever shows what has
+    // happened since it connected, so without this the alerts table starts
+    // empty after every restart. The live subscription above is untouched —
+    // it keeps adding new alerts on top, and DetectionsModel drops any that
+    // both sources deliver.
+    m_telemetry->backfillFrom(m_siem);
 
     // Boards are discovered from the broker's retained status topic, so
     // there is nothing to configure per board — only the broker itself.
@@ -99,6 +125,7 @@ void AppController::goNodes() { setScreen(QStringLiteral("nodes")); }
 void AppController::goModel() { setScreen(QStringLiteral("model")); }
 void AppController::goIntegrations() { setScreen(QStringLiteral("integrations")); }
 void AppController::goChat() { setScreen(QStringLiteral("chat")); }
+void AppController::goEvents() { setScreen(QStringLiteral("events")); }
 
 void AppController::toggleTheme()
 {
@@ -120,6 +147,7 @@ void AppController::selectDetection(int originalIndex)
     if (!m_detections->detectionAt(originalIndex))
         return;
     m_selectedDetectionIndex = originalIndex;
+    m_userSelectedDetection = true;
     emit selectedDetectionChanged();
 }
 
@@ -193,4 +221,72 @@ void AppController::askAboutSelectedDetection()
 
     m_chat->setDraft(q);
     goChat();
+}
+
+void AppController::explainDetection(int originalIndex)
+{
+    Detection *d = m_detections->detectionAt(originalIndex);
+    if (!d)
+        return;
+
+    // Right-click selects too: the popup and the inspector should never be
+    // describing two different rows.
+    selectDetection(originalIndex);
+
+    m_explainer->explain(d->uid(), d->node(), d->className(), d->classIdx(),
+                         d->confidenceText(), d->timestampRaw(), d->severity());
+}
+
+void AppController::explainEventRow(const QString &host, const QString &className,
+                                    int classIdx, const QString &confidenceText,
+                                    const QString &timestampRaw, const QString &severity,
+                                    int eventId)
+{
+    // Database rows have a server-side id, so the popup can name it the same
+    // way a backfilled detection does.
+    m_explainer->explain(QStringLiteral("IW-DB-%1").arg(eventId), host, className,
+                         classIdx, confidenceText, timestampRaw, severity);
+}
+
+void AppController::openExplainInAssistant()
+{
+    const QString q = m_explainer->questionForHandoff();
+    if (q.isEmpty())
+        return;
+    // The popup's own request is cancelled rather than left racing the
+    // Assistant for the backend's single generation slot.
+    m_explainer->close();
+    m_chat->setDraft(q);
+    goChat();
+}
+
+void AppController::openDetectionInWeb(int originalIndex)
+{
+    Detection *d = m_detections->detectionAt(originalIndex);
+    if (!d)
+        return;
+
+    selectDetection(originalIndex);
+
+    // A backfilled row's uid is IW-DB-<id>, which is the only place a live
+    // triage row can carry a server-side event id — a detection that arrived
+    // over MQTT has none, and the link goes out identified by host and
+    // timestamp instead.
+    QString id;
+    const QString uid = d->uid();
+    if (uid.startsWith(QLatin1String("IW-DB-")))
+        id = uid.mid(6);
+
+    m_webLink->openEvent(id, uid, d->node(), d->className(), d->classIdx(),
+                         d->confidenceText(), d->timestampRaw(), d->severity());
+}
+
+void AppController::openEventRowInWeb(int eventId, const QString &host,
+                                      const QString &className, int classIdx,
+                                      const QString &confidenceText,
+                                      const QString &timestampRaw, const QString &severity)
+{
+    m_webLink->openEvent(eventId >= 0 ? QString::number(eventId) : QString(),
+                         eventId >= 0 ? QStringLiteral("IW-DB-%1").arg(eventId) : QString(),
+                         host, className, classIdx, confidenceText, timestampRaw, severity);
 }

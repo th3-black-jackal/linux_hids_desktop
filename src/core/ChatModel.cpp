@@ -93,6 +93,20 @@ void ChatModel::appendToken(int row, const QString &text)
                                : QVector<int>{ TextRole });
 }
 
+void ChatModel::setAnswerText(int row, const QString &text)
+{
+    if (row < 0 || row >= m_turns.size())
+        return;
+    Turn &t = m_turns[row];
+    if (t.text == text)
+        return;
+    t.text = text;
+    const bool becameStreaming = (t.state != QStringLiteral("streaming"));
+    t.state = QStringLiteral("streaming");
+    touch(row, becameStreaming ? QVector<int>{ TextRole, StateRole }
+                               : QVector<int>{ TextRole });
+}
+
 void ChatModel::setSources(int row, const QVariantList &sources)
 {
     if (row < 0 || row >= m_turns.size())
@@ -150,7 +164,7 @@ QString ChatModel::roleAt(int row) const
     return m_turns.at(row).role;
 }
 
-QJsonArray ChatModel::history(int maxTurns) const
+QJsonArray ChatModel::openAiMessages(int maxTurns) const
 {
     // Walk backwards collecting usable turns, then reverse: the backend wants
     // oldest-first, but the cap has to keep the *most recent* context.
@@ -165,6 +179,9 @@ QJsonArray ChatModel::history(int maxTurns) const
     QJsonArray out;
     for (int i = kept.size() - 1; i >= 0; --i) {
         QJsonObject o;
+        // The OpenAI roles and this model's roles happen to be the same two
+        // strings, so no mapping is needed; system messages are never sent
+        // because §4 says the server ignores them.
         o[QStringLiteral("role")] = kept.at(i)->role;
         o[QStringLiteral("content")] = kept.at(i)->text;
         out.append(o);

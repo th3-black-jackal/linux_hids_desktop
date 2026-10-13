@@ -69,15 +69,86 @@ void DetectionsModel::watch(Detection *d)
     connect(d, &Detection::dispositionChanged, this, touch);
 }
 
-void DetectionsModel::addDetection(Detection *detection)
+int DetectionsModel::addBatch(const QVector<Detection *> &oldestFirst, const QVector<QString> &keys)
 {
+    if (oldestFirst.isEmpty())
+        return 0;
+
+    int added = 0;
+    beginResetModel();
+    for (int i = 0; i < oldestFirst.size(); ++i) {
+        Detection *d = oldestFirst.at(i);
+        const QString key = (i < keys.size()) ? keys.at(i) : QString();
+
+        if (!key.isEmpty() && m_seenKeys.contains(key)) {
+            delete d;
+            continue;
+        }
+
+        d->setParent(this);
+        watch(d);
+        // Prepending each in turn leaves the page's newest row on top, and
+        // pages arrive oldest-first, so the whole history ends up ordered.
+        m_all.prepend(d);
+        m_keys.prepend(key);
+        if (!key.isEmpty())
+            m_seenKeys.insert(key);
+        ++added;
+    }
+
+    while (m_all.size() > kMaxRetained) {
+        Detection *old = m_all.takeLast();
+        const QString oldKey = m_keys.takeLast();
+        if (!oldKey.isEmpty())
+            m_seenKeys.remove(oldKey);
+        old->deleteLater();
+    }
+    endResetModel();
+
+    applyFilter();
+    recomputeCounts();
+    if (added > 0)
+        emit detectionAdded();
+    return added;
+}
+
+QString DetectionsModel::dedupKeyFor(const QString &host, const QString &timestampRaw, int classIdx)
+{
+    // Both an MQTT payload and a SIEM row carry these three; nothing else is
+    // common to both (the database has an id the wire doesn't, the wire has
+    // features the list endpoint doesn't). Two genuinely distinct windows
+    // from one board cannot share a timestamp, so this is specific enough.
+    if (host.isEmpty() || timestampRaw.isEmpty())
+        return {};
+    return host + QLatin1Char('|') + timestampRaw + QLatin1Char('|') + QString::number(classIdx);
+}
+
+bool DetectionsModel::addDetection(Detection *detection, const QString &dedupKey)
+{
+    if (!dedupKey.isEmpty() && m_seenKeys.contains(dedupKey)) {
+        // Already in the queue from the other source. Drop it rather than
+        // showing the operator the same intrusion twice.
+        delete detection;
+        return false;
+    }
+
     detection->setParent(this);
     watch(detection);
 
     beginResetModel();
     m_all.prepend(detection);
+    m_keys.prepend(dedupKey);
+    if (!dedupKey.isEmpty())
+        m_seenKeys.insert(dedupKey);
+
     while (m_all.size() > kMaxRetained) {
         Detection *old = m_all.takeLast();
+        // Forget the key with the row, or the set grows unbounded on a
+        // long-running console and starts rejecting legitimate repeats of a
+        // timestamp the queue no longer holds.
+        const QString oldKey = m_keys.takeLast();
+        if (!oldKey.isEmpty())
+            m_seenKeys.remove(oldKey);
         old->deleteLater();
     }
     endResetModel();
@@ -85,6 +156,7 @@ void DetectionsModel::addDetection(Detection *detection)
     applyFilter();
     recomputeCounts();
     emit detectionAdded();
+    return true;
 }
 
 Detection *DetectionsModel::detectionAt(int originalIndex) const

@@ -247,8 +247,68 @@ void TelemetryClient::handleEvent(const QString &host, const QByteArray &payload
         const QString uid = QStringLiteral("IW-%1-%2")
             .arg(QDate::currentDate().toString(QStringLiteral("yyyyMMdd")))
             .arg(++m_uidCounter, 4, 10, QChar('0'));
-        m_detections->addDetection(new Detection(*ev, uid, severity, m_featureNames));
+        m_detections->addDetection(
+            new Detection(*ev, uid, severity, m_featureNames),
+            DetectionsModel::dedupKeyFor(host, ev->timestampRaw, ev->classIdx));
     }
+}
+
+// ── SIEM backfill ────────────────────────────────────────────────────────
+
+void TelemetryClient::backfillFrom(SiemClient *siem)
+{
+    m_siem = siem;
+    // The database rows must be graded by the same policy as the live ones,
+    // and loadSettings() has already run by the time this is called.
+    m_siem->setPolicy(m_policy);
+
+    connect(m_siem, &SiemClient::logged, this, [this](const QString &msg) {
+        m_log->pushEntry({ QTime::currentTime().toString(QStringLiteral("HH:mm:ss")), msg });
+    });
+
+    m_siem->backfillAlerts(
+        [this](const QVector<SiemEventsModel::Row> &page) { ingestSiemPage(page); },
+        /*maxRows=*/0);
+}
+
+void TelemetryClient::ingestSiemPage(const QVector<SiemEventsModel::Row> &page)
+{
+    QVector<Detection *> batch;
+    QVector<QString> keys;
+    batch.reserve(page.size());
+    keys.reserve(page.size());
+
+    for (const SiemEventsModel::Row &row : page) {
+        DetectionEvent ev;
+        ev.timestampRaw = row.eventTimeRaw;
+        ev.timestamp    = row.eventTime;
+        ev.receivedAt   = QDateTime::fromString(row.receivedAtRaw, Qt::ISODate);
+        ev.classIdx     = row.classIdx;
+        ev.className    = row.className;
+        ev.confidence   = row.confidence;
+        ev.host         = row.host;
+        ev.endpoint     = row.host;
+        // The list endpoint carries no feature vector by design (§3.1, §7.5);
+        // it is only on events/<id>/. Leaving this empty is the honest state
+        // — the inspector shows 0 features rather than a fabricated vector.
+
+        // A uid that names its origin: IW-DB-42 is row 42 of the SIEM
+        // database and can be looked up with GET /api/siem/events/42/, where
+        // the live IW-<date>-<n> form is console-local and has no
+        // server-side identity at all.
+        const QString uid = row.id >= 0 ? QStringLiteral("IW-DB-%1").arg(row.id)
+                                        : QStringLiteral("IW-DB-?");
+
+        batch.append(new Detection(ev, uid, row.severity, m_featureNames));
+        keys.append(DetectionsModel::dedupKeyFor(row.host, row.eventTimeRaw, row.classIdx));
+    }
+
+    // Backfill fills the triage queue and nothing else. The node registry,
+    // the class-distribution panel and the Overview event stream are all
+    // explicitly *live* views — replaying a week of history into them would
+    // make "last event 3 s ago" and "N windows observed" lie about the
+    // running system. m_lastEventAt is likewise left alone.
+    m_detections->addBatch(batch, keys);
 }
 
 void TelemetryClient::onTick()
@@ -290,7 +350,7 @@ QString TelemetryClient::windowPeriodText() const
         if (p > 0.0) { sum += p; ++n; }
     }
     if (n == 0)
-        return QStringLiteral("—");
+        return QStringLiteral("\u2014");
     return QStringLiteral("%1 s").arg(sum / n, 0, 'f', 1);
 }
 
